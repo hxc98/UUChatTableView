@@ -7,122 +7,241 @@
 //
 
 #import "ChatModel.h"
+#import "LeanMessageManager.h"
 
 #import "UUMessage.h"
 #import "UUMessageFrame.h"
 
+@interface ChatModel ()
+
+@property (nonatomic,strong) AVIMConversation *conversation;
+
+@property (nonatomic,strong) NSMutableArray *typedMessages;
+
+@end
+
 @implementation ChatModel
 
-- (void)populateRandomDataSource {
-    self.dataSource = [NSMutableArray array];
-    [self.dataSource addObjectsFromArray:[self additems:5]];
-}
-
-- (void)addRandomItemsToDataSource:(NSInteger)number{
-    
-    for (int i=0; i<number; i++) {
-        [self.dataSource insertObject:[[self additems:1] firstObject] atIndex:0];
-    }
-}
-
-// 添加自己的item
-- (void)addSpecifiedItem:(NSDictionary *)dic
+- (instancetype)initWithConversation:(AVIMConversation*)conversation
 {
-    UUMessageFrame *messageFrame = [[UUMessageFrame alloc]init];
-    UUMessage *message = [[UUMessage alloc] init];
-    NSMutableDictionary *dataDic = [NSMutableDictionary dictionaryWithDictionary:dic];
-    
-    NSString *URLStr = @"http://img0.bdstatic.com/img/image/shouye/xinshouye/mingxing16.jpg";
-    [dataDic setObject:@(UUMessageFromMe) forKey:@"from"];
-    [dataDic setObject:[[NSDate date] description] forKey:@"strTime"];
-    [dataDic setObject:@"Hello,Sister" forKey:@"strName"];
-    [dataDic setObject:URLStr forKey:@"strIcon"];
-    
-    [message setWithDict:dataDic];
-    [message minuteOffSetStart:previousTime end:dataDic[@"strTime"]];
-    messageFrame.showTime = message.showDateLabel;
-    [messageFrame setMessage:message];
-    
-    if (message.showDateLabel) {
-        previousTime = dataDic[@"strTime"];
+    self = [super init];
+    if (self) {
+        _conversation=conversation;
+        _dataSource=[NSMutableArray array];
+        _typedMessages=[NSMutableArray array];
     }
-    [self.dataSource addObject:messageFrame];
+    return self;
 }
 
-// 添加聊天item（一个cell内容）
-static NSString *previousTime = nil;
-- (NSArray *)additems:(NSInteger)number
-{
-    NSMutableArray *result = [NSMutableArray array];
-    
-    for (int i=0; i<number; i++) {
-        
-        NSDictionary *dataDic = [self getDic];
-        UUMessageFrame *messageFrame = [[UUMessageFrame alloc]init];
-        UUMessage *message = [[UUMessage alloc] init];
-        [message setWithDict:dataDic];
-        [message minuteOffSetStart:previousTime end:dataDic[@"strTime"]];
-        messageFrame.showTime = message.showDateLabel;
-        [messageFrame setMessage:message];
-        
-        if (message.showDateLabel) {
-            previousTime = dataDic[@"strTime"];
-        }
-        [result addObject:messageFrame];
-    }
-    return result;
-}
-
-// 如下:群聊（groupChat）
-static int dateNum = 10;
-- (NSDictionary *)getDic
-{
-    NSMutableDictionary *dictionary = [[NSMutableDictionary alloc] init];
-    int randomNum = arc4random()%5;
-    if (randomNum == UUMessageTypePicture) {
-        [dictionary setObject:[UIImage imageNamed:[NSString stringWithFormat:@"%zd.jpeg",arc4random()%2]] forKey:@"picture"];
+- (void)loadOldMessageItemsWithBlock:(void (^)(NSInteger count))block{
+    if(self.dataSource.count==0){
+        block(0);
     }else{
-        // 文字出现概率4倍于图片（暂不出现Voice类型）
-        randomNum = UUMessageTypeText;
-        [dictionary setObject:[self getRandomString] forKey:@"strContent"];
+        AVIMTypedMessage *typedMessage=self.typedMessages[0];
+        WEAKSELF
+        [self.conversation queryMessagesBeforeId:nil timestamp:typedMessage.sendTimestamp limit:20 callback:^(NSArray *typedMessages, NSError *error) {
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                NSMutableArray *oldMessageFrames=[NSMutableArray array];
+                for(AVIMTypedMessage* typedMessage in typedMessages){
+                    [oldMessageFrames addObject:[weakSelf messageFrameByTypedMessage:typedMessage]];
+                }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    NSMutableArray *messages=[NSMutableArray arrayWithArray:typedMessages];
+                    [messages addObjectsFromArray:weakSelf.typedMessages];
+                    weakSelf.typedMessages=messages;
+                    
+                    NSMutableArray *messageFrames = [NSMutableArray arrayWithArray:oldMessageFrames];
+                    [messageFrames addObjectsFromArray:weakSelf.dataSource];
+                    weakSelf.dataSource=messageFrames;
+                    [weakSelf setShowTimeFlag];
+                    block(oldMessageFrames.count);
+                });
+            });
+        }];
     }
-    NSDate *date = [[NSDate date]dateByAddingTimeInterval:arc4random()%1000*(dateNum++) ];
-    [dictionary setObject:@(UUMessageFromOther) forKey:@"from"];
-    [dictionary setObject:@(randomNum) forKey:@"type"];
-    [dictionary setObject:[date description] forKey:@"strTime"];
-    // 这里判断是否是私人会话、群会话
-    int index = _isGroupChat ? arc4random()%6 : 0;
-    [dictionary setObject:[self getName:index] forKey:@"strName"];
-    [dictionary setObject:[self getImageStr:index] forKey:@"strIcon"];
-    
-    return dictionary;
 }
 
-- (NSString *)getRandomString {
-    
-    NSString *lorumIpsum = @"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent non quam ac massa viverra semper. Maecenas mattis justo ac augue volutpat congue. Maecenas laoreet, nulla eu faucibus gravida, felis orci dictum risus, sed sodales sem eros eget risus. Morbi imperdiet sed diam et sodales.";
-    
-    NSArray *lorumIpsumArray = [lorumIpsum componentsSeparatedByString:@" "];
-    
-    int r = arc4random() % [lorumIpsumArray count];
-    r = MAX(6, r); // no less than 6 words
-    NSArray *lorumIpsumRandom = [lorumIpsumArray objectsAtIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, r)]];
-    
-    return [NSString stringWithFormat:@"%@!!", [lorumIpsumRandom componentsJoinedByString:@" "]];
+-(void)setShowTimeFlag{
+    if(self.dataSource.count!=self.typedMessages.count){
+        [NSException raise:@"Error" format:@"count not equal"];
+    }
+    for(int i=0;i<self.typedMessages.count;i++){
+        UUMessageFrame *messageFrame=self.dataSource[i];
+        UUMessage *message=messageFrame.message;
+        BOOL changed=NO;
+        if(i==0){
+            if(messageFrame.showTime!=YES){
+                changed=YES;
+                message.showDateLabel=YES;
+                messageFrame.showTime=YES;
+            }
+        }else{
+            AVIMTypedMessage *lastMessage=self.typedMessages[i-1];
+            AVIMTypedMessage *theMessage=self.typedMessages[i];
+            if((theMessage.sendTimestamp-lastMessage.sendTimestamp)/1000>5*60){
+                if(messageFrame.showTime!=YES){
+                    changed=YES;
+                    messageFrame.showTime=YES;
+                    message.showDateLabel=YES;
+                }
+            }else{
+                if(messageFrame.showTime!=NO){
+                    changed=YES;
+                    message.showDateLabel=NO;
+                    messageFrame.showTime=NO;
+                }
+            }
+        }
+        if(changed){
+            messageFrame.message=message;
+        }
+    }
 }
 
-- (NSString *)getImageStr:(NSInteger)index{
-    NSArray *array = @[@"http://www.120ask.com/static/upload/clinic/article/org/201311/201311061651418413.jpg",
-                       @"http://p1.qqyou.com/touxiang/uploadpic/2011-3/20113212244659712.jpg",
-                       @"http://www.qqzhi.com/uploadpic/2014-09-14/004638238.jpg",
-                       @"http://e.hiphotos.baidu.com/image/pic/item/5ab5c9ea15ce36d3b104443639f33a87e950b1b0.jpg",
-                       @"http://ts1.mm.bing.net/th?&id=JN.C21iqVw9uSuD2ZyxElpacA&w=300&h=300&c=0&pid=1.9&rs=0&p=0",
-                       @"http://ts1.mm.bing.net/th?&id=JN.7g7SEYKd2MTNono6zVirpA&w=300&h=300&c=0&pid=1.9&rs=0&p=0"];
-    return array[index];
+-(UUMessageFrame*)messageFrameByDictionary:(NSDictionary*)dictionary{
+    UUMessageFrame *messageFrame=[[UUMessageFrame alloc] init];
+    UUMessage *message=[[UUMessage alloc] init];
+    [message setWithDict:dictionary];
+    messageFrame.message=message;
+    return messageFrame;
 }
 
-- (NSString *)getName:(NSInteger)index{
-    NSArray *array = @[@"Hi,Daniel",@"Hi,Juey",@"Hey,Jobs",@"Hey,Bob",@"Hah,Dane",@"Wow,Boss"];
-    return array[index];
+-(UUMessageFrame*)messageFrameByTypedMessage:(AVIMTypedMessage*)typedMessage{
+    return [self messageFrameByDictionary:[self messageDictionaryByAVIMTypedMessage:typedMessage]];
 }
+
+-(void)loadMessagesWhenInitWithBlock:(dispatch_block_t)block{
+    WEAKSELF
+    [self.conversation queryMessagesBeforeId:nil timestamp:0 limit:10 callback:^(NSArray *typedMessages, NSError *error) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            NSMutableArray* messageFrames=[NSMutableArray array];
+            for(AVIMTypedMessage* typedMessage in typedMessages){
+                [messageFrames addObject:[weakSelf messageFrameByTypedMessage:typedMessage]];
+            }
+            weakSelf.typedMessages=[typedMessages mutableCopy];
+            [weakSelf.dataSource addObjectsFromArray:messageFrames];
+            [weakSelf setShowTimeFlag];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                block();
+            });
+        });
+    }];
+}
+
+-(NSString*)fetchDataOfMessageFile:(AVFile*)file fileName:(NSString*)fileName error:(NSError**)error{
+    NSString* path=[[NSSearchPathForDirectoriesInDomains(NSDocumentationDirectory, NSUserDomainMask, YES) firstObject] stringByAppendingString:fileName];
+    NSData* data=[file getData:error];
+    if(*error==nil){
+        [data writeToFile:path atomically:YES];
+    }
+    return path;
+}
+
+-(NSDictionary*)messageDictionaryByAVIMTypedMessage:(AVIMTypedMessage*)typedMessage{
+    AVIMMessageMediaType msgType = typedMessage.mediaType;
+    NSDate* timestamp=[NSDate dateWithTimeIntervalSince1970:typedMessage.sendTimestamp/1000];
+    NSMutableDictionary *dict=[NSMutableDictionary dictionary];
+    if([[LeanMessageManager manager].selfClientID isEqualToString:typedMessage.clientId]){
+        [dict setObject:@(UUMessageFromMe) forKey:@"from"];
+    }else{
+        [dict setObject:@(UUMessageFromOther) forKey:@"from"];
+    }
+    [dict setObject:[timestamp description] forKey:@"strTime"];
+    [dict setObject:[self displayNameByClientId:typedMessage.clientId] forKey:@"strName"];
+    [dict setObject:[self avatarUrlByClientId:typedMessage.clientId] forKey:@"strIcon"];
+    switch (msgType) {
+        case kAVIMMessageMediaTypeText: {
+            AVIMTextMessage *receiveTextMessage = (AVIMTextMessage *)typedMessage;
+            [dict setObject:@(UUMessageTypeText) forKey:@"type"];
+            [dict setObject:receiveTextMessage.text forKey:@"strContent"];
+            break;
+        }
+        case kAVIMMessageMediaTypeImage: {
+            AVIMImageMessage *imageMessage = (AVIMImageMessage *)typedMessage;
+            [dict setObject:@(UUMessageTypePicture) forKey:@"type"];
+            NSError *error;
+            NSData *data=[imageMessage.file getData:&error];
+            if(!error){
+                UIImage *image=[UIImage imageWithData:data];
+                [dict setObject:image forKey:@"picture"];
+            }
+            break;
+        }
+        case kAVIMMessageMediaTypeAudio:{
+            AVIMAudioMessage *audioMessage=(AVIMAudioMessage*)typedMessage;
+            NSError *error;
+            NSData *data=[audioMessage.file getData:&error];
+            [dict setObject:@(UUMessageTypeVoice) forKey:@"type"];
+            if(!error){
+                [dict setObject:data forKey:@"voice"];
+            }
+            [dict setObject:[NSString stringWithFormat:@"%.1f",audioMessage.duration] forKey:@"strVoiceTime"];
+        }
+        case kAVIMMessageMediaTypeVideo:
+            break;
+        case kAVIMMessageMediaTypeLocation:
+            break;
+        default:
+            break;
+    }
+    return dict;
+}
+
+-(void)sendMessage:(AVIMTypedMessage*)message block:(AVBooleanResultBlock)block{
+    WEAKSELF
+    [self.conversation sendMessage:message callback:^(BOOL succeeded, NSError *error) {
+        if(error){
+            block(NO,error);
+        }else{
+            [weakSelf addMessageToLast:message completion:^{
+                block(YES,nil);
+            }];
+        }
+    }];
+}
+
+-(void)addMessageToLast:(AVIMTypedMessage*)message completion:(dispatch_block_t)completion{
+    WEAKSELF
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        UUMessageFrame *messageFrame=[weakSelf messageFrameByTypedMessage:message];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf.typedMessages addObject:message];
+            [weakSelf.dataSource addObject:messageFrame];
+            [weakSelf setShowTimeFlag];
+            completion();
+        });
+    });
+}
+
+-(void)listenForNewMessageWithBlock:(dispatch_block_t)block{
+    WEAKSELF
+    [[LeanMessageManager manager] setupDidReceiveTypedMessageCompletion:^(AVIMConversation *conversation, AVIMTypedMessage *message) {
+        if([conversation.conversationId isEqualToString:weakSelf.conversation.conversationId]){
+            [weakSelf addMessageToLast:message completion:^{
+                block();
+            }];
+        }
+    }];
+}
+
+-(void)cancelListenForNewMessage{
+    [[LeanMessageManager manager] setupDidReceiveTypedMessageCompletion:nil];
+}
+
+#pragma mark - user info
+/**
+ * 配置头像
+ */
+- (NSString*)avatarUrlByClientId:(NSString*)clientId{
+    NSDictionary *urls=@{kMichaelClientID:@"http://www.120ask.com/static/upload/clinic/article/org/201311/201311061651418413.jpg",kBettyClientID:@"http://p1.qqyou.com/touxiang/uploadpic/2011-3/20113212244659712.jpg",kLindaClientID:@"http://www.qqzhi.com/uploadpic/2014-09-14/004638238.jpg"};
+    return urls[clientId];
+}
+
+/**
+ * 配置用户名
+ */
+- (NSString*)displayNameByClientId:(NSString*)clientId{
+    return clientId;
+}
+
 @end

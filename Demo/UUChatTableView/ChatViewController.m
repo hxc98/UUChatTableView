@@ -6,7 +6,7 @@
 //  Copyright (c) 2015年 uyiuyao. All rights reserved.
 //
 
-#import "RootViewController.h"
+#import "ChatViewController.h"
 #import "UUInputFunctionView.h"
 #import "MJRefresh.h"
 #import "UUMessageCell.h"
@@ -14,7 +14,7 @@
 #import "UUMessageFrame.h"
 #import "UUMessage.h"
 
-@interface RootViewController ()<UUInputFunctionViewDelegate,UUMessageCellDelegate,UITableViewDataSource,UITableViewDelegate>
+@interface ChatViewController ()<UUInputFunctionViewDelegate,UUMessageCellDelegate,UITableViewDataSource,UITableViewDelegate>
 
 @property (strong, nonatomic) MJRefreshHeaderView *head;
 @property (strong, nonatomic) ChatModel *chatModel;
@@ -22,10 +22,21 @@
 @property (weak, nonatomic) IBOutlet UITableView *chatTableView;
 @property (weak, nonatomic) IBOutlet NSLayoutConstraint *bottomConstraint;
 
+@property (nonatomic,strong) AVIMConversation *conversation;
+
 @end
 
-@implementation RootViewController{
+@implementation ChatViewController{
     UUInputFunctionView *IFView;
+}
+
+- (instancetype)initWithConversation:(AVIMConversation*)conversation
+{
+    self = [super init];
+    if (self) {
+        _conversation=conversation;
+    }
+    return self;
 }
 
 - (void)viewDidLoad {
@@ -33,7 +44,16 @@
     
     [self initBar];
     [self addRefreshViews];
-    [self loadBaseViewsAndData];
+    IFView = [[UUInputFunctionView alloc]initWithSuperVC:self];
+    IFView.delegate = self;
+    [self.view addSubview:IFView];
+    
+    self.chatModel = [[ChatModel alloc] initWithConversation:_conversation];
+    WEAKSELF
+    [self.chatModel loadMessagesWhenInitWithBlock:^{
+        [weakSelf.chatTableView reloadData];
+        [weakSelf tableViewScrollToBottom];
+    }];
 }
 
 - (void)viewDidAppear:(BOOL)animated
@@ -44,71 +64,46 @@
     [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(keyboardChange:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(keyboardChange:) name:UIKeyboardWillHideNotification object:nil];
     [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(tableViewScrollToBottom) name:UIKeyboardDidShowNotification object:nil];
+    WEAKSELF
+    [self.chatModel listenForNewMessageWithBlock:^{
+        [weakSelf finishSendMessage];
+    }];
 }
 
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
     [[NSNotificationCenter defaultCenter]removeObserver:self];
+    [self.chatModel cancelListenForNewMessage];
 }
 
 - (void)initBar
 {
-    UISegmentedControl *segment = [[UISegmentedControl alloc]initWithItems:@[@" private ",@" group "]];
-    [segment addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
-    segment.selectedSegmentIndex = 0;
-    self.navigationItem.titleView = segment;
+    self.title=@"Chat";
     
     self.navigationController.navigationBar.tintColor = [UIColor grayColor];
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]initWithBarButtonSystemItem:UIBarButtonSystemItemOrganize target:nil action:nil];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:nil];
-}
-- (void)segmentChanged:(UISegmentedControl *)segment
-{
-    self.chatModel.isGroupChat = segment.selectedSegmentIndex;
-    [self.chatModel.dataSource removeAllObjects];
-    [self.chatModel populateRandomDataSource];
-    [self.chatTableView reloadData];
 }
 
 - (void)addRefreshViews
 {
-    __weak typeof(self) weakSelf = self;
-    
-    //load more
-    int pageNum = 3;
-    
+    WEAKSELF
     _head = [MJRefreshHeaderView header];
     _head.scrollView = self.chatTableView;
     _head.beginRefreshingBlock = ^(MJRefreshBaseView *refreshView) {
-        
-        [weakSelf.chatModel addRandomItemsToDataSource:pageNum];
-        
-        if (weakSelf.chatModel.dataSource.count > pageNum) {
-            NSIndexPath *indexPath = [NSIndexPath indexPathForRow:pageNum inSection:0];
-            
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [weakSelf.chatModel loadOldMessageItemsWithBlock:^(NSInteger count) {
+            [weakSelf.head endRefreshing];
+            if(count>0){
                 [weakSelf.chatTableView reloadData];
-                [weakSelf.chatTableView scrollToRowAtIndexPath:indexPath atScrollPosition:UITableViewScrollPositionTop animated:NO];
-            });
-        }
-        [weakSelf.head endRefreshing];
+                if(weakSelf.chatModel.dataSource.count>count){
+                    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:count inSection:0];
+                    [weakSelf.chatTableView scrollToRowAtIndexPath:indexPath atScrollPosition:UITableViewScrollPositionTop animated:NO];
+                }
+            }
+        }];
     };
 }
 
-- (void)loadBaseViewsAndData
-{
-    self.chatModel = [[ChatModel alloc]init];
-    self.chatModel.isGroupChat = NO;
-    [self.chatModel populateRandomDataSource];
-    
-    IFView = [[UUInputFunctionView alloc]initWithSuperVC:self];
-    IFView.delegate = self;
-    [self.view addSubview:IFView];
-    
-    [self.chatTableView reloadData];
-    [self tableViewScrollToBottom];
-}
 
 -(void)keyboardChange:(NSNotification *)notification
 {
@@ -155,35 +150,51 @@
 
 
 #pragma mark - InputFunctionViewDelegate
+
 - (void)UUInputFunctionView:(UUInputFunctionView *)funcView sendMessage:(NSString *)message
 {
-    NSDictionary *dic = @{@"strContent": message,
-                          @"type": @(UUMessageTypeText)};
-    funcView.TextViewInput.text = @"";
-    [funcView changeSendBtnWithPhoto:YES];
-    [self dealTheFunctionData:dic];
+    
+    AVIMTextMessage *textMessage=[AVIMTextMessage messageWithText:message attributes:nil];
+    WEAKSELF
+    [self.chatModel sendMessage:textMessage block:^(BOOL succeeded, NSError *error) {
+        if([weakSelf filterError:error]){
+            funcView.TextViewInput.text = @"";
+            [funcView changeSendBtnWithPhoto:YES];
+            [weakSelf finishSendMessage];
+        }
+    }];
+}
+
+-(void)finishSendMessage{
+    [self.chatTableView reloadData];
+    [self tableViewScrollToBottom];
 }
 
 - (void)UUInputFunctionView:(UUInputFunctionView *)funcView sendPicture:(UIImage *)image
 {
-    NSDictionary *dic = @{@"picture": image,
-                          @"type": @(UUMessageTypePicture)};
-    [self dealTheFunctionData:dic];
+    NSString *filePath = [[NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject] stringByAppendingPathComponent:@"tmp.jpg"];
+    NSData* photoData=UIImageJPEGRepresentation(image,0.6);
+    [photoData writeToFile:filePath atomically:YES];
+    AVIMImageMessage *imageMessage = [AVIMImageMessage messageWithText:nil attachedFilePath:filePath attributes:nil];
+    WEAKSELF
+    [self.chatModel sendMessage:imageMessage block:^(BOOL succeeded, NSError *error) {
+        if([weakSelf filterError:error]){
+            [weakSelf finishSendMessage];
+        }
+    }];
 }
 
 - (void)UUInputFunctionView:(UUInputFunctionView *)funcView sendVoice:(NSData *)voice time:(NSInteger)second
 {
-    NSDictionary *dic = @{@"voice": voice,
-                          @"strVoiceTime": [NSString stringWithFormat:@"%d",(int)second],
-                          @"type": @(UUMessageTypeVoice)};
-    [self dealTheFunctionData:dic];
-}
-
-- (void)dealTheFunctionData:(NSDictionary *)dic
-{
-    [self.chatModel addSpecifiedItem:dic];
-    [self.chatTableView reloadData];
-    [self tableViewScrollToBottom];
+    NSString *filePath = [[NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject] stringByAppendingPathComponent:@"tmp.mp3"];
+    [voice writeToFile:filePath atomically:YES];
+    AVIMAudioMessage* sendAudioMessage=[AVIMAudioMessage messageWithText:nil attachedFilePath:filePath attributes:nil];
+    WEAKSELF
+    [self.chatModel sendMessage:sendAudioMessage block:^(BOOL succeeded, NSError *error) {
+        if([weakSelf filterError:error]){
+            [weakSelf finishSendMessage];
+        }
+    }];
 }
 
 #pragma mark - tableView delegate & datasource
@@ -216,8 +227,21 @@
 #pragma mark - cellDelegate
 - (void)headImageDidClick:(UUMessageCell *)cell userId:(NSString *)userId{
     // headIamgeIcon is clicked
-    UIAlertView *alert = [[UIAlertView alloc]initWithTitle:cell.messageFrame.message.strName message:@"headImage clicked" delegate:nil cancelButtonTitle:@"sure" otherButtonTitles:nil];
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:cell.messageFrame.message.strName message:@"headImage clicked" delegate:nil cancelButtonTitle:@"sure" otherButtonTitles:nil];
     [alert show];
+}
+
+#pragma mark - custom
+
+-(BOOL)filterError:(NSError*)error{
+    if(error){
+        UIAlertView *alertView=[[UIAlertView alloc]
+                                initWithTitle:nil message:error.description delegate:nil
+                                cancelButtonTitle:@"确定" otherButtonTitles:nil];
+        [alertView show];
+        return NO;
+    }
+    return YES;
 }
 
 @end

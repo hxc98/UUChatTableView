@@ -7,17 +7,22 @@
 //
 
 #import <Foundation/Foundation.h>
+#import <AVOSCloudIM/AVOSCloudIM.h>
 
 @interface ChatModel : NSObject
 
 @property (nonatomic, strong) NSMutableArray *dataSource;
 
-@property (nonatomic) BOOL isGroupChat;
+- (instancetype)initWithConversation:(AVIMConversation*)conversation;
 
-- (void)populateRandomDataSource;
+- (void)loadOldMessageItemsWithBlock:(void (^)(NSInteger count))block;
 
-- (void)addRandomItemsToDataSource:(NSInteger)number;
+-(void)loadMessagesWhenInitWithBlock:(dispatch_block_t)block;
 
-- (void)addSpecifiedItem:(NSDictionary *)dic;
+-(void)listenForNewMessageWithBlock:(dispatch_block_t)block;
+
+-(void)sendMessage:(AVIMTypedMessage*)message block:(AVBooleanResultBlock)block;
+
+-(void)cancelListenForNewMessage;
 
 @end

@@ -7,7 +7,9 @@
 //
 
 #import "AppDelegate.h"
-#import "RootViewController.h"
+#import "ChatViewController.h"
+#import "LeanMessageManager.h"
+#import "LoginTableViewController.h"
 
 @interface AppDelegate ()
 
@@ -17,13 +19,14 @@
 
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    
+    [LeanMessageManager setupApplication];
 
     self.window = [[UIWindow alloc]initWithFrame:[UIScreen mainScreen].bounds];
     
-    RootViewController *root = [[RootViewController alloc]init];
-    UINavigationController *nav = [[UINavigationController alloc]initWithRootViewController:root];
-    self.window.rootViewController = nav;
-    
+    LoginTableViewController *login=[[LoginTableViewController alloc]  initWithStyle:UITableViewStyleGrouped];
+    UINavigationController *nav=[[UINavigationController alloc] initWithRootViewController:login];
+    self.window.rootViewController=nav;
     [self.window makeKeyAndVisible];
 
     return YES;

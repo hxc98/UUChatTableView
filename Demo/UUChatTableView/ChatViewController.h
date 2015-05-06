@@ -7,7 +7,10 @@
 //
 
 #import <UIKit/UIKit.h>
+#import "LeanMessageManager.h"
 
-@interface RootViewController : UIViewController
+@interface ChatViewController : UIViewController
+
+- (instancetype)initWithConversation:(AVIMConversation*)conversation;
 
 @end
