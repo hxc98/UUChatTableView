@@ -1,16 +1,14 @@
 UUChatTableView
 ===============
 
-Cocoa UI component for chat bubbles with text, images and audio support
+此项目在 UUChatTableView 的基础上加入了 LeanCloud IM SDK，搭配了聊天后台，有了基本的通信功能。
 
 ## GIF 动画演示
 ![Flipboard playing multiple GIFs](https://github.com/ZhipingYang/UUChatTableView/raw/master/Demo/UUChatTableViewTests/ChatTableView.gif)
 
 ## 截图 - ScreenShot
 ![图片一](https://github.com/ZhipingYang/UUChatTableView/raw/master/Demo/UUChatTableViewTests//ScreenShot/QQ20150113-5.jpg) ![图片一](https://github.com/ZhipingYang/UUChatTableView/raw/master/Demo/UUChatTableViewTests//ScreenShot/QQ20150113-4.jpg)
-### 群聊（GroupChat）效果图（新添UI细节）
-![图片三](https://github.com/ZhipingYang/DataResource/raw/master/UUChat/IMG_0052.jpg)  
-![图片三](https://github.com/ZhipingYang/DataResource/raw/master/UUChat/IMG_0054.jpg)  
+
 ##使用类介绍 - Introduce
 
 [类名](https://github.com/ZhipingYang/UUChatTableView/tree/master/UUChat) | 作用及用法
