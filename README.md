@@ -9,6 +9,14 @@ UUChatTableView
 ## 截图 - ScreenShot
 ![图片一](https://github.com/ZhipingYang/UUChatTableView/raw/master/Demo/UUChatTableViewTests//ScreenShot/QQ20150113-5.jpg) ![图片一](https://github.com/ZhipingYang/UUChatTableView/raw/master/Demo/UUChatTableViewTests//ScreenShot/QQ20150113-4.jpg)
 
+## 运行
+打开 Bash，
+```bash
+   cd Demo
+   pod install
+   open UUChatTableView.xcworkspace
+```
+
 ##使用类介绍 - Introduce
 
 [类名](https://github.com/ZhipingYang/UUChatTableView/tree/master/UUChat) | 作用及用法
